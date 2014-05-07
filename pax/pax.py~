@@ -1,0 +1,13 @@
+import sys
+
+def initialize(): #will make a list of valid input file
+    L=[]
+    for line in sys.stdin:
+        print line
+        if line[0]!='#' and len(line.split())>1:
+            if line.split()[1]=="END":
+                return L
+            L.append(line.rstrip())
+    print "Error, waiting for input to be terminated with 0 END"
+
+print initialize()
