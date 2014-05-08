@@ -1,6 +1,8 @@
 import sys
 proposers=[]
 acceptors=[]
+tmax=None
+tick=0
 mtypes=['PROP','PREP','PROM','ACC','ACCD','REJ']
 ctypes=['P','A']
 class C: 
@@ -102,9 +104,18 @@ def initialize(): #will make a list of valid input file
         proposers.append(C(i+1,'P'))
     for i in range(0,int(setupvars[1])):
         acceptors.append(C(i+1,'A'))
+    tmax=int(setupvars[3])
     return L
 
+def runsim(elist, ntwk):
+    while tick<tmax:
+        if ntwk.queue == [] and elist == []:
+            print "No more events, fix this"
+        elif elist!=[]:
+            process_events(tick,elist)
+        
 
+    
 
 
 def main():
@@ -113,5 +124,6 @@ def main():
     E=[]
     for i in range(1,len(L)):
         E.append(Event(L[i]))
+    runsim(E,n)
 
 main()
