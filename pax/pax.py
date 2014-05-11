@@ -76,9 +76,7 @@ class Event:
             self.c = proposers[int(x[2])-1]
         else:
             self.c = proposers[int(x[3])-1] if x[2]=="PROPOSER" else acceptors[int(x[3])-1]
-            self.value=None
-
-    
+            self.value=None    
     def display(self):
         print "%d: Event type %s" % (self.tick, self.ty)
         if self.ty == 'P':
@@ -104,18 +102,34 @@ def initialize(): #will make a list of valid input file
         proposers.append(C(i+1,'P'))
     for i in range(0,int(setupvars[1])):
         acceptors.append(C(i+1,'A'))
-    tmax=int(setupvars[3])
+    global tmax
+    tmax=int(setupvars[2])
     return L
 
+def etick(li):
+    return li[0].tick
+
+def process_events(t,li):
+    print "Processing all events at tick %d from events list" % t
+    for i in li:
+        Event.display(i)
+
+def deliver_msg(n):
+    print "Delivering the first of the following:"
+    Network.display(n)
+
 def runsim(elist, ntwk):
-    while tick<tmax:
+    while tick<=tmax:
         if ntwk.queue == [] and elist == []:
             print "No more events, fix this"
-        elif elist!=[]:
+            return
+        elif elist!=[] and etick(elist)==tick:
             process_events(tick,elist)
+        elif ntwk.queue!=[]:
+            deliver_msg(ntwk)
         
-
-    
+        global tick
+        tick+=1
 
 
 def main():
@@ -124,6 +138,7 @@ def main():
     E=[]
     for i in range(1,len(L)):
         E.append(Event(L[i]))
+    
     runsim(E,n)
 
 main()
