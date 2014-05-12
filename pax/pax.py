@@ -60,10 +60,10 @@ class Network:
     def enq(self,msg):
         self.queue.append(msg)
     def deq(self):
-        for i in self.queue:
-            if i.src.failed==True or i.dst.failed==True:
-                return None
-            return self.queue.pop(0)
+        for c,i in enumerate(self.queue):
+            if i.src.failed==False and i.dst.failed==False:
+                return self.queue.pop(c)
+            
     def display(self):
         print "-----Network:-----"
         for i in self.queue:
@@ -172,28 +172,34 @@ def deliver_msg(n):
     elif t=='PREP':
         print "%d: %s%d -> %s%d %s n=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
         s_old=dc.state
+        #print "should I reject? here are old and current vals", s_old,m.propid
         if s_old>m.val:
+            print "error"
             Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
-            print "PRIOR PROPOSAL NUMBER WAS", dc.state
         else:
-            dc.state=m.val
-            dc.lastprom=m.val # should I pass this as the val in line below???
-            Network.enq(n,Message('PROM',sc,dc,m.propid,s_old,dc.state))
+            dc.state=m.propid
+            #dc.lastprom=m.val # should I pass this as the val in line below???
+            Network.enq(n,Message('PROM',sc,dc,m.propid,s_old,dc.lastprom))
     elif t=='PROM':
-        dc.state.append([sc,m.propid,m.prior])
+        dc.state.append([sc,m.propid,m.val])
         x=majority(dc.state)
         if x!=None and dc.reached.count(m.propid)==0:
             dc.reached.append(x)
             for c,i in enumerate(acceptors):
                 Network.enq(n,Message('ACC',i,dc,x,None,getval(dc.state,x,dc)))
             dc.state=prunepropid(dc.state,x)
-        if m.prior==None:
+        if m.prior==None or m.val==None:
             print "%d: %s%d -> %s%d %s n=%d (Prior: None)" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid)
         else:
             print "%d: %s%d -> %s%d %s n=%d (Prior: n=%d, v=%d)" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.prior,sc.lastprom) 
     elif t=='ACC':
-        print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val) 
-        Network.enq(n,Message('ACCD',sc,dc,m.propid,None,m.val))
+        print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val)
+
+        if dc.state>m.propid:
+            Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
+        else:
+            dc.lastprom=m.val
+            Network.enq(n,Message('ACCD',sc,dc,m.propid,None,m.val))
     elif t== 'REJ':
         print "%d: %s%d -> %s%d %s n=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
     else: #t=='ACCD':
@@ -249,7 +255,6 @@ def main():
     E=[]
     for i in range(1,len(L)):
         E.append(Event(L[i]))
-    
     runsim(E,n)
 
 main()
