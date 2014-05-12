@@ -221,7 +221,7 @@ def network_empty(q):
     if q==[]:
         return True
     if q[0].src.failed==True or q[0].dst.failed==True:
-        return network_empty(q.tail())
+        return network_empty(q[1:])
     else:
         return False 
 
