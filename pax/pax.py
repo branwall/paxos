@@ -196,12 +196,15 @@ def deliver_msg(n):
         print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val)
 
         if dc.state>m.propid:
-            Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
+            Network.enq(n,Message('REJ',sc,dc,m.propid,dc.state,m.val))
         else:
             dc.lastprom=m.val
             Network.enq(n,Message('ACCD',sc,dc,m.propid,None,m.val))
+            #Propid=propid, Prior=None (irrelevant), value accepted=m.val
     elif t== 'REJ':
         print "%d: %s%d -> %s%d %s n=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
+        #need way to keep track of majority recv'd
+
     else: #t=='ACCD':
         dc.acclist.append([m.propid,m.val])
         print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val) 
@@ -234,13 +237,17 @@ def network_empty(q):
 def runsim(elist, ntwk):
     global tick
     while tick<=tmax:
+        ty=None
         if ntwk.queue == [] and elist == None:
             print ""
             for i in proposers:
                 consensus(i)
             return
         elif elist!=None and etick(elist)==tick:
+            ty=elist[0].ty
             elist = process_events(tick,elist,ntwk)
+            if ty!='P' and network_empty(ntwk.queue)!=True:
+                deliver_msg(ntwk)
         elif network_empty(ntwk.queue)!=True:
             deliver_msg(ntwk)
         else: #No events or active network
