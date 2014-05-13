@@ -1,3 +1,4 @@
+from __future__ import division
 import sys
 proposers=[]
 acceptors=[]
@@ -11,11 +12,16 @@ class C:
         self.num=num
         assert ctypes.count(ty)>0
         self.ty=ty
-        self.lastprom=None #proposer uses this for last prop'd
         self.failed=False
-        self.state=None if ty=='A' else []    ##in acceptor, proposal number, in proposer a list of promises
-        self.reached=[]
-        self.acclist=[]
+        self.lastpromised=None # for acceptor
+        self.highestproposal=None #for acceptor
+        self.acceptedvalue=None #for acceptor
+        self.currentproposalnum=None #for Proposer
+        self.currentproposalval=None #For Proposer
+        self.consensus=None
+        self.promlist={} #For promise messages to Proposer
+        self.acclist={} #For accepted messages to Proposer
+        self.rejlist={} #For rejected messages to proposer
     def fail(self):
         self.failed=True
     def recover(self):
@@ -24,8 +30,15 @@ class C:
         print " -----------------"
         print "|   %s # %d  |" % (("Proposer" if self.ty == 'P' else "Acceptor"), self.num)
         print "|   Failed?  %s   |" % ("yes" if self.failed==True else "no")
+        print (("|  Last Prom = %d  |" % self.lastpromised)
+               if self.ty=='A' 
+               else ("|CurrentProp=%d(%d)|" % self.currentproposalnum,self.currentproposalval))
+        if self.ty=='A':
+            print ("| Highest Prop = %d|" % self.highestproposal) 
         print " -----------------"
-
+        if self.ty=='P':
+            print "ACCs",self.acclist
+            print "REJs",self.rejlist
 class Message:
     def __init__(self,ty,dest,source,propid,prior=None,val=None):
         assert mtypes.index(ty)>=0
@@ -114,117 +127,113 @@ def etick(li):
     return li[0].tick
 
 def process_events(t,li,n): #tick to process, 
+    global tick
     for c,i in enumerate(li):
+        if tick<10:
+            tickformat="  " + str(t)
+        elif tick<100:
+            tickformat=" " + str(t)
+        else:
+            tickformat=str(t)
         if i.tick>t:
             return li[c:]
         if i.ty=="P":
-            print "%d:    -> %s%d  PROPOSE v=%d" % (t,i.c.ty,i.c.num,i.value)
-            i.c.lastprom=i.value
+            print "%s:    -> %s%d PROPOSE v=%d" % (tickformat,i.c.ty,i.c.num,i.value)
             n.counter+=1
+            old_prop=i.c.currentproposalnum
+            i.c.currentproposalval=i.value
+            i.c.currentproposalnum=n.counter
             for cc,ii in enumerate(acceptors):
-                Network.enq(n,Message("PREP",ii,i.c,n.counter,None,i.value)) # don't forget prior & value
+                Network.enq(n,Message("PREP",ii,i.c,n.counter,old_prop,i.value))
+            tick+=1
         elif i.ty=="F":
             C.fail(i.c)
-            print "%d: ** %s%d FAILS **" % (t,i.c.ty,i.c.num)
+            print "%s: ** %s%d FAILS **" % (tickformat,i.c.ty,i.c.num)
         elif i.ty=="R":
             C.recover(i.c)
-            print "%d: ** %s%d RECOVERS **" % (t,i.c.ty,i.c.num)
+            print "%s: ** %s%d RECOVERS **" % (tickformat,i.c.ty,i.c.num)
         
-            
-def majority(statelist):
-    thresh=len(acceptors)/2
-    ct=0
-    statelist.reverse()
-    last=statelist[0][1] # set equal to most recently recv'd proposal ID
-    for i in statelist: #each I is a list of (acceptor, proposal id, prior value
-        if i[1] == last:
-            ct+=1
-            if ct>=thresh:
-                statelist.reverse()
-                return last
-        else:
-            last=i[1]
-            ct=1
-    statelist.reverse()
-    return None
-
-def prunepropid(statelist,pruneid):
-    import copy
-    l2=copy.deepcopy(statelist)
-    for i in l2:
-        if i[1]==pruneid: #XXX: Should this be <= ? do I care about old proposal #s?
-            l2.remove(i)
-    return l2
-        
-def getval(statelist,checkid,comp):
-    for i in statelist:
-        if i[1]==checkid:
-            return i[2] if i[2]!=None else comp.lastprom #this might need to be fixed in case I have different prior vals
-    
 
 def deliver_msg(n):
     m=Network.deq(n)
     sc=m.src # source computer
     dc=m.dst # destination computer
     t=m.kind # message type
+    if tick<10:
+        tickformat="  " + str(tick)
+    elif tick<100:
+        tickformat=" " + str(tick)
+    else:
+        tickformat=str(tick)
     if t=='PROP':
         print "Error, proposals must come from outside the system"
     elif t=='PREP':
-        print "%d: %s%d -> %s%d %s n=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
-        s_old=dc.state
-        #print "should I reject? here are old and current vals", s_old,m.propid
-        if s_old>m.val:
-            print "error"
-            Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
-        else:
-            dc.state=m.propid
-            #dc.lastprom=m.val # should I pass this as the val in line below???
-            Network.enq(n,Message('PROM',sc,dc,m.propid,s_old,dc.lastprom))
+        print "%s: %s%d -> %s%d %s n=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
+        #I think this case is irrelevant
+        #if dc.highestproposal>m.val:
+        #    print "error, received prep for older msg"
+        #    #Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
+        #else:
+        old_proposal=dc.highestproposal
+        old_proposal_val=dc.lastpromised
+        dc.lastpromised=m.val
+        dc.highestproposal=m.propid
+        Network.enq(n,Message('PROM',sc,dc,m.propid,old_proposal,old_proposal_val))
     elif t=='PROM':
-        dc.state.append([sc,m.propid,m.val])
-        x=majority(dc.state)
-        if x!=None and dc.reached.count(m.propid)==0:
-            dc.reached.append(x)
+        if sc.acceptedvalue!=None:
+            dc.promlist['prev']=sc.acceptedvalue
+        if m.propid in dc.promlist: #If this isn't the first promise for this ID
+            dc.promlist[m.propid]+=1
+        else:
+            dc.promlist[m.propid]=1
+
+        if dc.promlist[m.propid]>(len(acceptors)/2) and dc.promlist[m.propid]-1<(len(acceptors)/2): 
+            # we have a majority
+            if 'prev' in dc.promlist:
+                val=dc.promlist['prev']
+                del dc.promlist['prev']
+            else:
+                val=dc.currentproposalval
             for c,i in enumerate(acceptors):
-                Network.enq(n,Message('ACC',i,dc,x,None,getval(dc.state,x,dc)))
-            dc.state=prunepropid(dc.state,x)
-        if m.prior==None or m.val==None:
-            print "%d: %s%d -> %s%d %s n=%d (Prior: None)" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid)
+                Network.enq(n,Message('ACC',i,dc,m.propid,None,val))
+                    
+        if sc.acceptedvalue==None: # or m.val==None:
+            print "%s: %s%d -> %s%d %s n=%d (Prior: None)" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid)
         else:
-            print "%d: %s%d -> %s%d %s n=%d (Prior: n=%d, v=%d)" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.prior,sc.lastprom) 
+            print ("%s: %s%d -> %s%d %s n=%d (Prior: n=%d, v=%d)" % 
+                   (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.prior,sc.acceptedvalue)) 
     elif t=='ACC':
-        print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val)
-
-        if dc.state>m.propid:
-            Network.enq(n,Message('REJ',sc,dc,m.propid,dc.state,m.val))
+        print "%s: %s%d -> %s%d %s n=%d v=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val)
+        if dc.highestproposal>m.propid:
+            Network.enq(n,Message('REJ',sc,dc,m.propid,None,None))
         else:
-            dc.lastprom=m.val
+            dc.acceptedvalue=m.val
             Network.enq(n,Message('ACCD',sc,dc,m.propid,None,m.val))
-            #Propid=propid, Prior=None (irrelevant), value accepted=m.val
     elif t== 'REJ':
-        print "%d: %s%d -> %s%d %s n=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
-        #need way to keep track of majority recv'd
-
-    else: #t=='ACCD':
-        dc.acclist.append([m.propid,m.val])
-        print "%d: %s%d -> %s%d %s n=%d v=%d" % (tick,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val) 
-                
-    
-def consensus(comp):
-    comp.acclist.reverse()
-    thresh=len(acceptors)/2
-    count=0
-    last=comp.acclist[0][0] #most recently acc'd prop num
-    for i in comp.acclist:
-        if i[0]==last:
-            count+=1
-            if count>=thresh:
-                print "%s%d has reached consensus (proposed %d, accepted %d)" % (comp.ty,comp.num,comp.lastprom,i[1])
-                return
+        print "%s: %s%d -> %s%d %s n=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
+        if m.propid in dc.rejlist:
+            dc.rejlist[m.propid]+=1
         else:
-            count=1
-    print "%s%d did not reach consensus" % (comp.ty,comp.num)
-    return
+            dc.rejlist[m.propid]=1
+        if dc.rejlist[m.propid]>len(acceptors)/2 and dc.rejlist[m.propid]-1<(len(acceptors)/2):
+            #repropose
+            n.counter+=1
+            dc.currentproposalnum=n.counter
+            for cc,ii in enumerate(acceptors):
+                Network.enq(n,Message("PREP",ii,dc,n.counter))
+    else: #t=='ACCD':
+        if m.propid in dc.acclist:
+            dc.acclist[m.propid]+=1
+        else:
+            dc.acclist[m.propid]=1
+        if dc.acclist[m.propid]>len(acceptors)/2 and dc.acclist[m.propid]-1<(len(acceptors)/2):
+            dc.consensus=m.val
+        print "%s: %s%d -> %s%d %s n=%d v=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val) 
+def consensus(comp):
+    if comp.consensus!=None:
+        print "%s%d has reached consensus (proposed %d, accepted %d)" % (comp.ty,comp.num,comp.currentproposalval,comp.consensus)
+    else:
+        print "%s%d did not reach consensus" % (comp.ty,comp.num)
 
 def network_empty(q):
     if q==[]:
@@ -233,6 +242,8 @@ def network_empty(q):
         return network_empty(q[1:])
     else:
         return False 
+
+    
 
 def runsim(elist, ntwk):
     global tick
@@ -244,16 +255,23 @@ def runsim(elist, ntwk):
                 consensus(i)
             return
         elif elist!=None and etick(elist)==tick:
-            ty=elist[0].ty
             elist = process_events(tick,elist,ntwk)
-            if ty!='P' and network_empty(ntwk.queue)!=True:
+            if network_empty(ntwk.queue)!=True:
                 deliver_msg(ntwk)
         elif network_empty(ntwk.queue)!=True:
             deliver_msg(ntwk)
         else: #No events or active network
-            print "%d:" % tick
+            if tick<10:
+                tickformat="  " + str(tick)
+            elif tick<100:
+                tickformat=" " + str(tick)
+            else:
+                tickformat=str(tick)
+            print "%s:" % tickformat
         tick+=1
-    print "sim ended bc u hit max time"
+    print ""
+    for i in proposers:
+        consensus(i)
 
 
 def main():
