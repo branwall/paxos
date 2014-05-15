@@ -1,0 +1,2 @@
+#!/bin/bash
+python pax.py < tests/paxos.$1.in > $1.out; diff -b --brief $1.out tests/paxos.$1.out;
