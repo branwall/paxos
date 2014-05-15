@@ -7,7 +7,7 @@ tick=0
 mtypes=['PROP','PREP','PROM','ACC','ACCD','REJ']
 message_print_type={'PROP':'PROPOSE','PREP':'PREPARE','PROM':'PROMISE','ACC':'ACCEPT','ACCD':'ACCEPTED','REJ':'REJECTED'}
 ctypes=['P','A']
-class C: 
+class C: #This is a class for both proposers and acceptors, and the type is stored in self.ty
     def __init__(self,num,ty):
         self.num=num
         assert ctypes.count(ty)>0
@@ -39,7 +39,7 @@ class C:
         if self.ty=='P':
             print "ACCs",self.acclist
             print "REJs",self.rejlist
-class Message:
+class Message: #Message which a proposer might send to an acceptor or vice versa
     def __init__(self,ty,dest,source,propid,prior=None,val=None):
         assert mtypes.index(ty)>=0
         self.kind=ty
@@ -48,25 +48,10 @@ class Message:
         self.propid=propid
         self.prior=prior
         self.val=val
-    def display(self):
-        print "/////////////////////////////"
-        print "Message of type %s" % self.kind
-        print "from"
-        C.display(self.src)
-        print "to"
-        C.display(self.dst)
-        print "Proposal ID: %d" % self.propid
-        print "Prior Proposal?", self.prior
-        print "Value?", self.val
-        print "/////////////////////////////"
     def minidisplay(self):
-        print "%d: Msg type %s from %s%d to %s%d" % (self.propid,
-                                                     self.kind,
-                                                     self.src.ty,
-                                                     self.src.num,
-                                                     self.dst.ty,
-                                                     self.dst.num)
-class Network:
+        print "%d: Msg type %s from %s%d to %s%d" % (self.propid, self.kind, self.src.ty,
+                                                     self.src.num, self.dst.ty,self.dst.num)
+class Network: #Defines a queue structure and enq and deq operations.  Accepts a list of messages.
     def __init__(self):
         self.counter=0
         self.queue=[]
@@ -76,13 +61,12 @@ class Network:
         for c,i in enumerate(self.queue):
             if i.src.failed==False and i.dst.failed==False:
                 return self.queue.pop(c)
-            
     def display(self):
         print "-----Network:-----"
         for i in self.queue:
             Message.minidisplay(i)
         print "------------------"
-class Event:
+class Event: #These encode info received from stdin to be passed around when running sim.
     def __init__(self,string):
         x=string.split()
         self.tick=int(x[0])
@@ -102,18 +86,11 @@ class Event:
             print "(%s %s %d)\n" % ( ("Fail" if self.ty=='F' else "Recover"),
                                    self.c.ty, self.c.num)
 
-def whois():
-    for p in proposers:
-        C.display(p)
-    for a in acceptors:
-        C.display(a)
 def initialize(): #will make a list of valid input file
     L=[]
     for line in sys.stdin:
-        #print line
         if line[0]!='#' and len(line.split())>1 and line.split()[1]!="END":
             L.append(line.rstrip())
-    
     setupvars=L[0].split()
     for i in range(0,int(setupvars[0])):
         proposers.append(C(i+1,'P'))
@@ -123,18 +100,20 @@ def initialize(): #will make a list of valid input file
     tmax=int(setupvars[2])
     return L
 
-def etick(li):
+def etick(li): #Returns the first tick in a list of events
     return li[0].tick
+
+def tf(t): #Returns a string containing the proper format for the tick, given its length of digits.
+    if t<10:
+        return "  " + str(t)
+    elif t<100:
+        return " " + str(t)
+    return str(t)
 
 def process_events(t,li,n): #tick to process, 
     global tick
     for c,i in enumerate(li):
-        if tick<10:
-            tickformat="  " + str(t)
-        elif tick<100:
-            tickformat=" " + str(t)
-        else:
-            tickformat=str(t)
+        tickformat=tf(t)
         if i.tick>t:
             return li[c:]
         if i.ty=="P":
@@ -152,43 +131,35 @@ def process_events(t,li,n): #tick to process,
         elif i.ty=="R":
             C.recover(i.c)
             print "%s: ** %s%d RECOVERS **" % (tickformat,i.c.ty,i.c.num)
-        
 
 def deliver_msg(n):
     m=Network.deq(n)
     sc=m.src # source computer
     dc=m.dst # destination computer
     t=m.kind # message type
-    if tick<10:
-        tickformat="  " + str(tick)
-    elif tick<100:
-        tickformat=" " + str(tick)
-    else:
-        tickformat=str(tick)
-    if t=='PROP':
+    tickformat=tf(tick)
+    if t=='PROP': #If a proposal message is received
         print "Error, proposals must come from outside the system"
-    elif t=='PREP':
+    elif t=='PREP': #If a 'prepare' message is received and proposal ID is what's expected, send a PROM
         print "%s: %s%d -> %s%d %s n=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
-        #I think this case is irrelevant
-        #if dc.highestproposal>m.val:
-        #    print "error, received prep for older msg"
-        #    #Network.enq(n,Message('REJ',sc,dc,m.val,s_old))
-        #else:
-        old_proposal=dc.highestproposal
-        old_proposal_val=dc.lastpromised
-        dc.lastpromised=m.val
-        dc.highestproposal=m.propid
-        Network.enq(n,Message('PROM',sc,dc,m.propid,old_proposal,old_proposal_val))
-    elif t=='PROM':
+        if dc.highestproposal<=m.propid:
+            old_proposal=dc.highestproposal
+            old_proposal_val=dc.lastpromised
+            if dc.acceptedvalue!=None:
+                old_proposal_val=dc.acceptedvalue
+            dc.lastpromised=m.val
+            dc.highestproposal=m.propid
+            Network.enq(n,Message('PROM',sc,dc,m.propid,old_proposal,old_proposal_val))
+    elif t=='PROM': #If a promise is received, make a note in the Proposer's dictionary. Send ACC if maj. reached.
         if sc.acceptedvalue!=None:
             dc.promlist['prev']=sc.acceptedvalue
-        if m.propid in dc.promlist: #If this isn't the first promise for this ID
+        if m.propid in dc.promlist:
             dc.promlist[m.propid]+=1
         else:
             dc.promlist[m.propid]=1
 
         if dc.promlist[m.propid]>(len(acceptors)/2) and dc.promlist[m.propid]-1<(len(acceptors)/2): 
-            # we have a majority
+            # we have an majority (assume we've already done this if we have more than necessary for a majority.
             if 'prev' in dc.promlist:
                 val=dc.promlist['prev']
                 del dc.promlist['prev']
@@ -196,20 +167,19 @@ def deliver_msg(n):
                 val=dc.currentproposalval
             for c,i in enumerate(acceptors):
                 Network.enq(n,Message('ACC',i,dc,m.propid,None,val))
-                    
-        if sc.acceptedvalue==None: # or m.val==None:
+        if sc.acceptedvalue==None:
             print "%s: %s%d -> %s%d %s n=%d (Prior: None)" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid)
-        else:
+        else: 
             print ("%s: %s%d -> %s%d %s n=%d (Prior: n=%d, v=%d)" % 
-                   (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.prior,sc.acceptedvalue)) 
-    elif t=='ACC':
+                   (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.prior,m.val)) 
+    elif t=='ACC': #If we receive an ACCEPT message, decide whether to reject it or store it to memory and send accepted.
         print "%s: %s%d -> %s%d %s n=%d v=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid,m.val)
         if dc.highestproposal>m.propid:
             Network.enq(n,Message('REJ',sc,dc,m.propid,None,None))
         else:
             dc.acceptedvalue=m.val
             Network.enq(n,Message('ACCD',sc,dc,m.propid,None,m.val))
-    elif t== 'REJ':
+    elif t== 'REJ': #Make note of rejections, restart proposal if too many.
         print "%s: %s%d -> %s%d %s n=%d" % (tickformat,sc.ty,sc.num,dc.ty,dc.num,message_print_type[t],m.propid) 
         if m.propid in dc.rejlist:
             dc.rejlist[m.propid]+=1
@@ -221,7 +191,7 @@ def deliver_msg(n):
             dc.currentproposalnum=n.counter
             for cc,ii in enumerate(acceptors):
                 Network.enq(n,Message("PREP",ii,dc,n.counter))
-    else: #t=='ACCD':
+    else: #t=='ACCD': Store this in memory, decide whether consensus was reached.
         if m.propid in dc.acclist:
             dc.acclist[m.propid]+=1
         else:
@@ -241,9 +211,7 @@ def network_empty(q):
     if q[0].src.failed==True or q[0].dst.failed==True:
         return network_empty(q[1:])
     else:
-        return False 
-
-    
+        return False    
 
 def runsim(elist, ntwk):
     global tick
@@ -261,18 +229,11 @@ def runsim(elist, ntwk):
         elif network_empty(ntwk.queue)!=True:
             deliver_msg(ntwk)
         else: #No events or active network
-            if tick<10:
-                tickformat="  " + str(tick)
-            elif tick<100:
-                tickformat=" " + str(tick)
-            else:
-                tickformat=str(tick)
-            print "%s:" % tickformat
+            print "%s:" % tf(tick)
         tick+=1
     print ""
     for i in proposers:
         consensus(i)
-
 
 def main():
     L=initialize()
